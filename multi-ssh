@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# A simple script to run a single one-off command on multiple SSH hosts.
+# This does not act in parallel, as it's only for occasional use.
+# For anything beyond basic commands don't use this; use something
+# like parallel-ssh: https://github.com/ParallelSSH/parallel-ssh
+
+display_usage() {
+  echo "Usage: $(basename ${0}) -h host1,host2 -c \"command\""
+  echo ""
+  echo "-h  hosts    comma-delimited list of hosts to act on; user@host or hosts from ~/.ssh/config"
+  echo "-c  command  command to run on the listed hosts; must be in quotes"
+  echo ""
+  exit 1
+}
+
+# Check if no arguments have been passed
+if [ $# -eq 0 ]; then
+  display_usage
+fi
+
+# Read hosts and command options
+while getopts ":h:c:" options; do
+  case "${options}" in
+    h )
+      hosts="${OPTARG}"
+      ;;
+    c )
+      command="${OPTARG}"
+      ;;
+    : )
+      echo "Option ${OPTARG} requires an argument!" 1>&2
+      display_usage
+      ;;
+  esac
+done
+
+# Check if the option arguments have been provided
+if [ -z "${hosts}" ] || [ -z "${command}" ]; then
+  display_usage
+fi
+
+# Put the hosts into an array (using a slightly suboptimal method...)
+hosts=($(echo "${hosts}" | tr ',' ' '))
+
+# Iterate over the array of hosts and issue the command to each one
+for host in "${hosts[@]}"; do
+  ssh "${host}" "${command}"
+done

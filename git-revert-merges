@@ -1,0 +1,52 @@
+#!/bin/bash
+
+# Revert merges between two commits
+
+if [ $# -eq 0 ]; then
+echo "Usage: $0 start target"
+echo ""
+echo "start = SHA of starting commit (or HEAD, etc.)"
+echo "target = SHA of target commit"
+echo ""
+echo "Reverts all merge commits from HEAD to the target commit. Use at your own risk."
+echo ""
+exit 1
+fi
+
+start=$1
+target=$2
+
+# Exit on any error so we don't screw anything up
+set -e
+
+echo "Reverting from ${start} to ${target}..."
+echo ""
+sleep 1
+
+# Build the list of commits to revert
+commits=$(git rev-list ${target}..${start})
+merges=()
+
+for sha in ${commits}; do
+  # Look for merge commits; check if they are merges before attempting to revert
+  if [[ $(git cat-file -p ${sha} | grep '^parent ' | wc -l) -ge 2 ]]; then
+    # This commit has two parents, it is a merge
+    merges+=( "${sha}" )
+  fi
+done
+
+echo "These merge commits will be reverted:"
+for line in ${merges[@]}; do
+  echo "${line}"
+done
+echo ""
+sleep 2
+
+for sha in ${merges[@]}; do
+  # Revert each commit; use the 1st parent (the branch merged into) as the mainline
+  echo "Reverting: ${sha}"
+  git revert -m 1 --no-commit ${sha}
+  echo "Reverted."
+done
+
+echo "Reverts are complete."

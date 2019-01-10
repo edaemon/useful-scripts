@@ -1,0 +1,95 @@
+#!/bin/bash
+
+# Script to iterate over a time range and download each hour of logs.
+
+# Configure your email and API key below, or set them as environment variables
+
+email="${CLOUDFLARE_EMAIL}"
+apikey="${CLOUDFLARE_API_KEY}"
+
+display_usage() {
+  echo "Usage: $(basename ${0}) [-h] domain begin end"
+  echo ""
+  echo "-h      display this help text"
+  echo "domain  the domain to download logs from; either tek.com or tek.com.cn"
+  echo "begin   the date from which downloaded logs should start"
+  echo "end     the date up to which downloaded logs should go"
+  echo ""
+  echo "Both the begin and end dates should be in full ISO 8601 format,"
+  echo "including seconds and the time zone. To see an example of this"
+  echo "format, run: date --iso-8601=seconds"
+  echo ""
+  exit 1
+}
+
+if (( $# < 1 )); then
+  display_usage
+fi
+
+if [ $1 = "-h" ]; then
+  display_usage
+  exit 0
+fi
+
+if (( $# < 3 )); then
+  display_usage
+fi
+
+domain=$1
+begin_date=$2
+end_date=$3
+
+# Verify and display the begin date to be used
+if date --iso-8601=seconds -d "${begin_date}" > /dev/null; then
+  begin_date_unix=$(date -d "${begin_date}" +"%s")
+  echo "Using beginning date: ${begin_date}" 1>&2
+else
+  echo "Begin date is not a valid date. Used: ${begin_date}" 1>&2
+  echo "Valid example: $(date --iso-8601=seconds)" 1>&2
+  exit 1
+fi
+
+# Verify and display the end date to be used
+if date --iso-8601=seconds -d "${end_date}" > /dev/null; then
+  end_date_unix=$(date -d "${end_date}" +"%s")
+  echo "Using end date: ${end_date}" 1>&2
+else
+  echo "End date is not a valid date. Used: ${end_date}" 1>&2
+  echo "Valid example: $(date --iso-8601=seconds)" 1>&2
+  exit 1
+fi
+
+# Verify the email and API key are configured
+if [ -z ${email} ]; then
+  echo "Your email is not configured. Enter your email in the script." 1>&2
+  exit 1
+fi
+
+if [ -z ${apikey} ]; then
+  echo "Your API key is not configured. Enter your API key in the script." 1>&2
+  exit 1
+fi
+
+# Verify that the logshare-cli utility is available
+if ! command -v logshare-cli > /dev/null; then
+  echo "The logshare-cli utility is not available." 1>&2
+  echo "Install the utility from here: https://github.com/cloudflare/logshare" 1>&2
+fi
+
+# Iterate over the hours in the time range and retrieve the logs for each hour
+echo "Beginning download of logs, hour by hour..." 1>&2
+
+# Split the time range into hours, using Unix time
+hours=()
+iter="${begin_date_unix}"
+# Iterate by hourly increments until we pass the end date
+while (( iter < end_date_unix )); do
+  # If the next hour would take us beyond the end date, use the end date instead
+  if (( iter + 3600 > end_date_unix )); then
+    iter_end="${end_date_unix}"
+  else
+    iter_end=$(( iter + 3600 ))
+  fi
+  logshare-cli --api-email "${email}" --api-key "${apikey}" --zone-name "${domain}" --fields EdgeServerIP,ClientRequestMethod,ClientRequestURI,EdgeResponseStatus,OriginResponseStatus,ClientRequestUserAgent,ClientRequestHost,ClientIP,EdgeResponseBytes,OriginResponseTime,EdgeStartTimestamp,EdgeEndTimestamp,ClientRequestReferer --count -1 --start-time "${iter}" --end-time "${iter_end}"
+  iter="${iter_end}"
+done
