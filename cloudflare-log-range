@@ -11,7 +11,7 @@ display_usage() {
   echo "Usage: $(basename ${0}) [-h] domain begin end"
   echo ""
   echo "-h      display this help text"
-  echo "domain  the domain to download logs from; either tek.com or tek.com.cn"
+  echo "domain  the zone/domain to download logs for; e.g. example.com"
   echo "begin   the date from which downloaded logs should start"
   echo "end     the date up to which downloaded logs should go"
   echo ""
