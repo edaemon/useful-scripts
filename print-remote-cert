@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# Take a domain and print the certificate information at that domain;
+# this does not verify if the domain or port number are valid. If the
+# script hangs or times out, there may be a connection problem; check
+# that the hostname and port are reachable.
+
+display_usage() {
+  echo "Usage: $(basename ${0}) hostname [port]"
+  echo ""
+  echo "hostname   host/domain name to check"
+  echo "port       port number; defaults to 443"
+  echo ""
+  exit 1
+}
+
+# Check if no arguments have been passed
+if [ $# -eq 0 ]; then
+  display_usage
+fi
+
+# Default port to 443
+if [ -z "$2" ]; then
+  port="443"
+else
+  port="$2"
+fi
+
+hostname="$1"
+host_port="${hostname}:${port}"
+
+echo | openssl s_client -showcerts -servername "${host_port}" -connect "${host_port}" 2>/dev/null | openssl x509 -inform pem -noout -text
