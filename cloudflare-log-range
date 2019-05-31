@@ -39,6 +39,10 @@ domain=$1
 begin_date=$2
 end_date=$3
 
+# Configure requested fields; unmodified this will get all fields available.
+# This is left as one huge line to make it easier to comment out.
+fields="CacheCacheStatus,CacheResponseBytes,CacheResponseStatus,CacheTieredFill,ClientASN,ClientCountry,ClientDeviceType,ClientIP,ClientIPClass,ClientRequestBytes,ClientRequestHost,ClientRequestMethod,ClientRequestPath,ClientRequestProtocol,ClientRequestReferer,ClientRequestURI,ClientRequestUserAgent,ClientSSLCipher,ClientSSLProtocol,ClientSrcPort,EdgeColoID,EdgeEndTimestamp,EdgePathingOp,EdgePathingSrc,EdgePathingStatus,EdgeRateLimitAction,EdgeRateLimitID,EdgeRequestHost,EdgeResponseBytes,EdgeResponseCompressionRatio,EdgeResponseContentType,EdgeResponseStatus,EdgeServerIP,EdgeStartTimestamp,OriginIP,OriginResponseBytes,OriginResponseHTTPExpires,OriginResponseHTTPLastModified,OriginResponseStatus,OriginResponseTime,OriginSSLProtocol,ParentRayID,RayID,SecurityLevel,WAFAction,WAFFlags,WAFMatchedVar,WAFProfile,WAFRuleID,WAFRuleMessage,WorkerCPUTime,WorkerStatus,WorkerSubrequest,WorkerSubrequestCount,ZoneID"
+
 # Verify and display the begin date to be used
 if date --iso-8601=seconds -d "${begin_date}" > /dev/null; then
   begin_date_unix=$(date -d "${begin_date}" +"%s")
@@ -90,6 +94,6 @@ while (( iter < end_date_unix )); do
   else
     iter_end=$(( iter + 3600 ))
   fi
-  logshare-cli --api-email "${email}" --api-key "${apikey}" --zone-name "${domain}" --fields EdgeServerIP,ClientRequestMethod,ClientRequestURI,EdgeResponseStatus,OriginResponseStatus,ClientRequestUserAgent,ClientRequestHost,ClientIP,EdgeResponseBytes,OriginResponseTime,EdgeStartTimestamp,EdgeEndTimestamp,ClientRequestReferer --count -1 --start-time "${iter}" --end-time "${iter_end}"
+  logshare-cli --api-email "${email}" --api-key "${apikey}" --zone-name "${domain}" --fields "${fields}" --count -1 --start-time "${iter}" --end-time "${iter_end}"
   iter="${iter_end}"
 done
