@@ -1,0 +1,23 @@
+#!/usr/bin/python
+
+import argparse
+import json
+import csv
+
+parser = argparse.ArgumentParser(description="Convert JSON files formatted for S3 SELECT to CSV")
+parser.add_argument("in_file")
+parser.add_argument("out_file")
+args = parser.parse_args()
+
+# Read each line from the file as a JSON object
+with open(args.in_file) as s3_select_json:
+    data = [json.loads(line.strip()) for line in s3_select_json]
+
+# Gather all keys for use as column headers (fieldnames)
+all_keys = set().union(*(d.keys() for d in data))
+
+# Write the data to the CSV file
+csv_file = csv.DictWriter(open(args.out_file, "wb+"), all_keys)
+csv_file.writeheader()
+for entry in data:
+    csv_file.writerow(entry)
