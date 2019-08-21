@@ -15,6 +15,6 @@ This is a collection of some scripts that I've had occasion to use. They're not 
 To make these easier to use, I clone the repo (anywhere) and put the repo in my `PATH`. For example:
 
 ```
-export PATH=$PATH:~/projects/bash-useful-scripts
+export PATH="$PATH:$HOME/projects/useful-scripts"
 ```
 
