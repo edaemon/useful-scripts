@@ -1,0 +1,58 @@
+#!/bin/bash
+
+# Script to iterate over a list of servers, running a du command on
+# the root directory and consolidating the results.
+
+display_usage() {
+  echo "Usage: $(basename ${0}) -h host1,host2"
+  echo ""
+  echo "-h  hosts    comma-delimited list of hosts to act on; user@host or hosts from ~/.ssh/config"
+  echo ""
+  exit 1
+}
+
+# Check if correct arguments have been passed
+if [ $# -ne 2 ]; then
+  display_usage
+fi
+
+# Read hosts and options
+while getopts ":h:c:" options; do
+  case "${options}" in
+    h )
+      hosts="${OPTARG}"
+      ;;
+    : )
+      echo "Option ${OPTARG} requires an argument!" 1>&2
+      display_usage
+      ;;
+  esac
+done
+
+# Put the hosts into an array (using a slightly suboptimal method...)
+hosts=($(echo "${hosts}" | tr ',' ' '))
+
+# Prepare an associative array to compile results
+declare -A RESULTS
+
+# Iterate over the array of hosts and issue the du command to each one
+for host in "${hosts[@]}"; do
+  echo "Checking status on: ${host}"
+  # Run the du command on the current host, throwing away errors
+  results="$(ssh "${host}" "du --exclude=proc -sb /* 2>/dev/null")"
+  while IFS= read -r result; do
+    # Read the bytes and path from each result
+    read -r bytes path <<< "${result}"
+    # Add the bytes to the total, using the path as the key
+    RESULTS[${path}]=$(( ${RESULTS[${path}]} + ${bytes} ))
+  done <<< "${results}"
+  echo
+done
+
+# Convert bytes to human-readable formats
+for path in ${!RESULTS[@]}; do
+  RESULTS_HR="${RESULTS_HR}"$'\n'"$(echo "${path}: $(echo ${RESULTS[${path}]} | numfmt --to=iec --padding=5)")"
+done
+
+echo "RESULTS:"; echo
+echo "${RESULTS_HR}" | sort -k2 -h
