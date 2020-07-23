@@ -10,6 +10,7 @@ This is a collection of some scripts that I've had occasion to use. They're not 
 * `print-remote-cert` (bash): Print the SSL/TLS certificate found at the remote address. Does not verify the domain/port are reachable.
 * `s3-select-json-to-csv` (Python): Convert a file formatted for [AWS S3 SELECT](https://docs.aws.amazon.com/AmazonS3/latest/dev/s3-glacier-select-sql-reference-select.html) (JSON objects, one on each line) to CSV, for use in other contexts.
 * `cross-server-du` (bash): Iterate over a list of servers, estimate disk usage at the root level, and consolidate the data. Useful for checking what's taking up all the space in a cluster or environment.
+* `github-org-storage` (bash): Print the GitHub Actions/Packages storage used for the 100 most-recently updated repositories belonging to the target GitHub organization.
 
 ## Installation
 

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+# Calculates the total GitHub Actions/Packages storage used in the
+# 100 most-recently updated repositories belonging to the target
+# organization. Requires the jp utility. A valid GitHub
+# Personal Access Token (PAT) must be available in the GITHUB_PAT
+# environment variable.
+
+display_usage() {
+  echo "Usage: $(basename ${0}) organization username"
+  echo ""
+  echo "organization    GitHub organization to analyze"
+  echo "username        GitHub username to use for authentication"
+  echo ""
+  exit 1
+}
+
+# Check if correct number of arguments have been passed
+if [ $# -ne 2 ]; then
+  display_usage
+fi
+
+# Check if jp is available
+if ! [ -x "$(command -v jp)" ]; then
+  echo "Error: jp is not installed!" >&2
+  exit 1
+fi
+
+# Check if GitHub PAT environment variable is populated
+if [ -z "${GITHUB_PAT}" ]; then
+  echo "Error: GITUB_PAT is empty!" >&2
+  exit 1 
+fi
+
+org=$1
+user=$2
+
+# Collect the repositories in this organization
+repos=$(curl -s -u ${user}:${GITHUB_PAT} https://api.github.com/orgs/${org}/repos?per_page=100\&sort=updated | jp -u 'join(`"\n"`, [].name)')
+org_total=0
+
+# Analyze the storage for each repository
+echo "TOTAL STORAGE PER REPOSITORY:"
+for repo in ${repos}; do
+  artifact_sizes=$(curl -s -u ${user}:${GITHUB_PAT} https://api.github.com/repos/${org}/${repo}/actions/artifacts?per_page=100 | jp artifacts[*].size_in_bytes | grep -P '\d+' | tr -d ',' | tr -d [:blank:])
+  repo_total=0
+  for artifact_size in ${artifact_sizes}; do
+    repo_total=$(( repo_total + $(printf '%.0f' ${artifact_size}) ))
+  done
+  org_total=$(( org_total + repo_total ))
+  echo "${repo}: $(numfmt --to=iec-i ${repo_total})"
+done
+echo ""
+echo "TOTAL STORAGE FOR ORG: $(numfmt --to=iec-i ${org_total})"
