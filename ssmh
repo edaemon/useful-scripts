@@ -30,6 +30,7 @@ display_usage() {
   echo "-h, --help             Display this help message"
   echo "-p, --profile          AWS CLI profile to switch to; defaults to AWS_PROFILE envvar, or"
   echo "                         provides a list to choose from"
+  echo "-s,--select            Disregard any profile in AWS_PROFILE and allow selection"
   echo ""
   echo "Note that SSH logins rely on existing SSH configuration. To access an instance,"
   echo "you will need configuration like this in an SSH config file (e.g. ~/.ssh/config):"
@@ -77,6 +78,10 @@ while (( "$#" )); do
     -p|--profile)
       PROFILE=$2
       shift 2
+      ;;
+    -s|--select)
+      PROFILE=''
+      shift
       ;;
     -*|--*=) # Unknown options
       echo "ERROR: Unknown argument: $1" >&2
