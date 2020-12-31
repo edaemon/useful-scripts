@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+
+# AWS Systems Manager SSH Helper
+
+# A wrapper/helper script that makes it easier to use SSH over
+# AWS Systems Manager (SSM).
+
+# This is meant for use in conjuction with SSH config similar to this:
+#
+#   Host i-* mi-*
+#       User ssm-user
+#       ProxyCommand sh -c "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'"
+#       IdentityFile ~/.ssh/aws/id_aws
+#       IdentitiesOnly yes
+#
+# In addition, the public key associated with the specified IdentityFile must be present
+# on the EC2 instance in the above user's ~/.ssh/authorized_keys file.
+#
+# With the above in place, after sourcing this script you can run an SSH command to connect
+# to any of the listed EC2 instances, e.g.:
+#
+#   ssh i-018e5463bz49918e6
+
+display_usage() {
+  echo "Usage: . $(basename ${BASH_SOURCE[0]}) [OPTION]..."
+  echo ""
+  echo "Switch AWS profiles and list instance IDs that are available for SSH logins via AWS SSM"
+  echo ""
+  echo "Available options:"
+  echo "-h, --help             Display this help message"
+  echo "-p, --profile          AWS CLI profile to switch to; defaults to AWS_PROFILE envvar, or"
+  echo "                         provides a list to choose from"
+  echo ""
+  echo "Note that SSH logins rely on existing SSH configuration. To access an instance,"
+  echo "you will need configuration like this in an SSH config file (e.g. ~/.ssh/config):"
+  echo ""
+  echo "  # SSH over Session Manager"
+  echo "  Host i-* mi-*"
+  echo "      User ssm-user"
+  echo "      ProxyCommand sh -c \"aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'\""
+  echo "      IdentityFile ~/.ssh/aws/id_aws"
+  echo "      IdentitiesOnly yes"
+  echo ""
+  echo "In addition, the public key associated with the specified IdentityFile must be present"
+  echo "on the EC2 instance in the ssm-user's ~/.ssh/authorized_keys file."
+  echo ""
+  echo "Finally, note that this script must be sourced instead of running it directly!"
+  echo "Run it using either 'source $(basename ${BASH_SOURCE[0]})' or '. $(basename ${BASH_SOURCE[0]})'."
+}
+
+# Ensure this script is being sourced
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  echo ""
+  echo "ERROR: $(basename ${BASH_SOURCE[0]}) is not being sourced! Profile switching will not persist!" >&2
+  echo "This means that an SSH connection may not use the correct profile, causing it to fail." >&2
+  echo "To persist profile changes, run this with either 'source $(basename ${BASH_SOURCE[0]})' or '. $(basename ${BASH_SOURCE[0]})'." >&2
+  echo ""
+  exit 1
+fi
+
+# Check for AWS CLI
+if ! [ -x "$(command -v aws)" ]; then
+  echo "Error: the AWS CLI is not installed!" >&2
+fi
+
+### Validate arguments
+# Define defaults
+OPTIONS=""
+PROFILE=${AWS_PROFILE}
+
+while (( "$#" )); do
+  case "$1" in
+    -h|--help)
+      display_usage
+      return
+      ;;
+    -p|--profile)
+      PROFILE=$2
+      shift 2
+      ;;
+    -*|--*=) # Unknown options
+      echo "ERROR: Unknown argument: $1" >&2
+      ;;
+    *) # Preserve positional arguments
+      OPTIONS="$OPTIONS $1"
+      shift
+      ;;
+  esac
+done
+
+eval set -- "$OPTIONS"
+
+### Select a profile
+if [ -z ${PROFILE} ]; then
+  mapfile -t profiles < <(aws configure list-profiles)
+  echo "Select a profile:"
+  select profile in "${profiles[@]}" "Cancel"; do
+    case ${profile} in
+      "Cancel")
+        echo "Cancelled"
+        return
+        ;;
+      *)
+        PROFILE="${profile}"
+        break
+        ;;
+    esac
+  done
+  echo "Profile set to: ${PROFILE}"
+else
+  echo "Using profile: ${PROFILE}"
+fi
+
+# Set the profile for SSH and CLI commands
+export AWS_PROFILE="${PROFILE}"
+
+### Identify instances
+# Retrieve the list of SSM-enabled instances
+mapfile -t instances < <(aws ssm describe-instance-information --query InstanceInformationList[].InstanceId --output text | tr '\t' ' ')
+
+# Warn of the SSO login requirement
+if [ -z "${instances}" ]; then
+  echo "No SSM-enabled instances were found! Please verify this in the AWS console." >&2
+  echo "This profile may require an SSO login, which you can now run with:" >&2
+  echo "  aws sso login" >&2
+  return
+fi
+
+# Retrieve and display further details on the instances
+aws ec2 describe-instances --instance-ids ${instances} --query 'Reservations[*].Instances[*].{Name:Tags[?Key==`aws:autoscaling:groupName`]|[0].Value,Instance:InstanceId,State:State.Name,Hostname:PrivateDnsName}' --output table
