@@ -8,13 +8,10 @@
 # This is meant for use in conjuction with SSH config similar to this:
 #
 #   Host i-* mi-*
-#       User ssm-user
-#       ProxyCommand sh -c "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'"
+#       User ec2-user
+#       ProxyCommand bash -c "/path/to/ssmh --login %r:%h:%p"
 #       IdentityFile ~/.ssh/aws/id_aws
 #       IdentitiesOnly yes
-#
-# In addition, the public key associated with the specified IdentityFile must be present
-# on the EC2 instance in the above user's ~/.ssh/authorized_keys file.
 #
 # With the above in place, after sourcing this script you can run an SSH command to connect
 # to any of the listed EC2 instances, e.g.:
@@ -27,48 +24,45 @@ display_usage() {
   echo "Switch AWS profiles and list instance IDs that are available for SSH logins via AWS SSM"
   echo ""
   echo "Available options:"
-  echo "-h, --help             Display this help message"
-  echo "-p, --profile          AWS CLI profile to switch to; defaults to AWS_PROFILE envvar, or"
-  echo "                         provides a list to choose from"
-  echo "-s,--select            Disregard any profile in AWS_PROFILE and allow selection"
+  echo "-h, --help                         Display this help message"
+  echo "-p, --profile [PROFILE]            AWS CLI profile to switch to; defaults to AWS_PROFILE envvar, or"
+  echo "                                     provides a list to choose from"
+  echo "-s, --select                       Disregard any profile in AWS_PROFILE and allow selection"
+  echo "-l, --login [USER:INSTANCE:PORT]   Generates a session on the specified instance, including copying"
+  echo "                                     the SSH public key to it (meant for use with SSH config)"
+  echo "-k, --key                          The SSH public key to use for logins, defaults to ~/.ssh/aws/id_aws"
   echo ""
   echo "Note that SSH logins rely on existing SSH configuration. To access an instance,"
   echo "you will need configuration like this in an SSH config file (e.g. ~/.ssh/config):"
   echo ""
-  echo "  # SSH over Session Manager"
+  echo "  # SSH via Session Manager"
   echo "  Host i-* mi-*"
-  echo "      User ssm-user"
-  echo "      ProxyCommand sh -c \"aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters 'portNumber=%p'\""
+  echo "      User ec2-user"
+  echo "      ProxyCommand bash -c \"/path/to/ssmh --login %r:%h:%p\""
   echo "      IdentityFile ~/.ssh/aws/id_aws"
   echo "      IdentitiesOnly yes"
   echo ""
-  echo "In addition, the public key associated with the specified IdentityFile must be present"
-  echo "on the EC2 instance in the ssm-user's ~/.ssh/authorized_keys file."
-  echo ""
   echo "Finally, note that this script must be sourced instead of running it directly!"
   echo "Run it using either 'source $(basename ${BASH_SOURCE[0]})' or '. $(basename ${BASH_SOURCE[0]})'."
+  echo "More simply, configure a shell alias, e.g. in ~/.bashrc or ~/.bash_profile:"
+  echo ""
+  echo "  alias ssmh=\"source /path/to/ssmh\""
+  echo ""
 }
-
-# Ensure this script is being sourced
-if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
-  echo ""
-  echo "ERROR: $(basename ${BASH_SOURCE[0]}) is not being sourced! Profile switching will not persist!" >&2
-  echo "This means that an SSH connection may not use the correct profile, causing it to fail." >&2
-  echo "To persist profile changes, run this with either 'source $(basename ${BASH_SOURCE[0]})' or '. $(basename ${BASH_SOURCE[0]})'." >&2
-  echo ""
-  exit 1
-fi
 
 # Check for AWS CLI
 if ! [ -x "$(command -v aws)" ]; then
   echo "Error: the AWS CLI is not installed!" >&2
 fi
 
-### Validate arguments
-# Define defaults
+### Define defaults
 OPTIONS=""
+LOGIN=false
+TARGET=""
+PUBLIC_KEY_FILE="${HOME}/.ssh/aws/id_aws.pub"
 PROFILE=${AWS_PROFILE}
 
+### Validate arguments
 while (( "$#" )); do
   case "$1" in
     -h|--help)
@@ -83,6 +77,15 @@ while (( "$#" )); do
       PROFILE=''
       shift
       ;;
+    -l|--login)
+      LOGIN=true
+      TARGET=(${2//:/ })
+      shift 2
+      ;;
+    -k|--key)
+      PUBLIC_KEY_FILE=$2
+      shift
+      ;;
     -*|--*=) # Unknown options
       echo "ERROR: Unknown argument: $1" >&2
       ;;
@@ -94,6 +97,57 @@ while (( "$#" )); do
 done
 
 eval set -- "$OPTIONS"
+
+### Ensure this script is being sourced except for logins
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [ "${LOGIN}" = false ]; then
+  echo ""
+  echo "ERROR: $(basename ${BASH_SOURCE[0]}) is not being sourced! Profile switching will not persist!" >&2
+  echo "This means that an SSH connection may not use the correct profile, causing it to fail." >&2
+  echo "To persist profile changes, run this with either 'source $(basename ${BASH_SOURCE[0]})' or '. $(basename ${BASH_SOURCE[0]})'." >&2
+  echo ""
+  exit 1
+fi
+
+### Handle login mode
+if [ "${LOGIN}" = true ]; then
+  # Exit on error
+  set -e
+  # Set up variables
+  TARGET_USER=${TARGET[0]}
+  TARGET_INSTANCE=${TARGET[1]}
+  TARGET_PORT=${TARGET[2]}
+  # Copy the SSH public key to the target instance
+  echo "Copying public key to target..." &> /dev/tty
+  PUBLIC_KEY=$(cat "${PUBLIC_KEY_FILE}")
+  COMMAND_ID=$(aws ssm send-command \
+    --instance-ids "${TARGET_INSTANCE}" \
+    --document-name 'AWS-RunShellScript' \
+    --parameters commands="\"
+      mkdir -p /home/${TARGET_USER}/.ssh
+      grep -F '${PUBLIC_KEY}' /home/${TARGET_USER}/.ssh/authorized_keys || echo '${PUBLIC_KEY}' >> /home/${TARGET_USER}/.ssh/authorized_keys
+      chown -R ${TARGET_USER}:${TARGET_USER} /home/${TARGET_USER}/.ssh/
+      chmod -R u=rwX,g=,o= /home/${TARGET_USER}/.ssh/
+    \"" \
+    --query Command.CommandId \
+    --output text)
+  # Wait for command to complete
+  while true; do
+    STATUS=$(aws ssm get-command-invocation \
+      --command-id "${COMMAND_ID}" \
+      --instance-id "${TARGET_INSTANCE}" \
+      --query Status \
+      --output text)
+    if [[ "${STATUS}" != "Success" ]]; then
+      sleep 3;
+    else
+      break
+    fi
+  done
+  echo "Public key is in place on ${TARGET_INSTANCE}" &> /dev/tty
+  # Start a session on the target instance
+  echo "Starting SSH session..." &> /dev/tty
+  aws ssm start-session --target "${TARGET_INSTANCE}" --document-name AWS-StartSSHSession --parameters "portNumber=${TARGET_PORT}"
+fi
 
 ### Select a profile
 if [ -z ${PROFILE} ]; then
