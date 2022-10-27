@@ -31,6 +31,9 @@ display_usage() {
   echo "-l, --login [USER:INSTANCE:PORT]   Generates a session on the specified instance, including copying"
   echo "                                     the SSH public key to it (meant for use with SSH config)"
   echo "-k, --key                          The SSH public key to use for logins, defaults to ~/.ssh/aws/id_aws"
+  echo "-r, --reason                       Login reason that will be provided to Session Manager; required"
+  echo "                                     when 'ssmh_reason_required = true' is set in the active AWS"
+  echo "                                     profile config, persists in the SSMH_LOGIN_REASON envvar"
   echo ""
   echo "Note that SSH logins rely on existing SSH configuration. To access an instance,"
   echo "you will need configuration like this in an SSH config file (e.g. ~/.ssh/config):"
@@ -61,6 +64,8 @@ LOGIN=false
 TARGET=""
 PUBLIC_KEY_FILE="${HOME}/.ssh/aws/id_aws.pub"
 PROFILE=${AWS_PROFILE}
+REASON_REQUIRED=false
+REASON="${SSMH_LOGIN_REASON}"
 
 ### Validate arguments
 while (( "$#" )); do
@@ -86,6 +91,10 @@ while (( "$#" )); do
       PUBLIC_KEY_FILE=$2
       shift
       ;;
+    -r|--reason)
+      REASON=$2
+      shift
+      ;;
     -*|--*=) # Unknown options
       echo "ERROR: Unknown argument: $1" >&2
       ;;
@@ -108,6 +117,9 @@ if [[ "${BASH_SOURCE[0]}" == "${0}" ]] && [ "${LOGIN}" = false ]; then
   exit 1
 fi
 
+# Check if a login reason is required before running any commands
+REASON_REQUIRED=$(aws configure get ssmh_reason_required)
+
 ### Handle login mode
 if [ "${LOGIN}" = true ]; then
   # Exit on error
@@ -116,6 +128,14 @@ if [ "${LOGIN}" = true ]; then
   TARGET_USER=${TARGET[0]}
   TARGET_INSTANCE=${TARGET[1]}
   TARGET_PORT=${TARGET[2]}
+  if [ "${REASON_REQUIRED}" = true  ]; then
+    if [ -z "${REASON}" ]; then
+      echo "A login reason is required for this profile!" &> /dev/tty
+      echo "Provide a reason with the --reason/-r option or SSMH_LOGIN_REASON envvar" &> /dev/tty
+      exit 1
+    fi
+    REASON_ARGS=(--reason "${REASON}")
+  fi
   # Copy the SSH public key to the target instance
   echo "Copying public key to target..." &> /dev/tty
   PUBLIC_KEY=$(cat "${PUBLIC_KEY_FILE}")
@@ -146,7 +166,11 @@ if [ "${LOGIN}" = true ]; then
   echo "Public key is in place on ${TARGET_INSTANCE}" &> /dev/tty
   # Start a session on the target instance
   echo "Starting SSH session..." &> /dev/tty
-  aws ssm start-session --target "${TARGET_INSTANCE}" --document-name AWS-StartSSHSession --parameters "portNumber=${TARGET_PORT}"
+  if [ "${REASON_REQUIRED}" = true  ]; then
+    aws ssm start-session --target "${TARGET_INSTANCE}" --document-name AWS-StartSSHSession --parameters "portNumber=${TARGET_PORT}" "${REASON_ARGS[@]}"
+  else
+    aws ssm start-session --target "${TARGET_INSTANCE}" --document-name AWS-StartSSHSession --parameters "portNumber=${TARGET_PORT}"
+  fi
 fi
 
 ### Select a profile
@@ -172,6 +196,11 @@ fi
 
 # Set the profile for SSH and CLI commands
 export AWS_PROFILE="${PROFILE}"
+
+# Set the login reason for future logins
+if [ "${REASON_REQUIRED}" = true  ]; then
+  export SSMH_LOGIN_REASON="${REASON}"
+fi
 
 ### Identify instances
 # Retrieve the list of SSM-enabled instances
